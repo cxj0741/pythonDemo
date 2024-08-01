@@ -7,12 +7,11 @@ from mysql.connector import Error
 import hashlib
 from datetime import datetime
 
-# 存在的问题：1.重复点击链接的去重判断，根据link_hash进行判断，重复则不去交给gpt，直接偏移，，，，重复点击，无法插入数据带来的number不连续的问题
 # 2:坐标左对齐，居中的问题
 #3：坐标回退判断
 #4：点击链接以后，没有进行插入数据，number已经+1，后端服务崩溃，number不连续的问题
 #5：有时候在一个单元格内不去滑动，不知道什么原因，文本内容太长，超出单元格范围，无法滚动
-# 6：服务重启滑动距离不对
+
 
 # 替换为你的 OneAI API 密钥
 api_key = 'sk-ozYXQPQjeu0xCHFg0a1f329dA2194689931b8a6a6809558c'
@@ -45,6 +44,23 @@ def create_connection():
     except Error as e:
         print(f"连接 MySQL 数据库时发生错误: {e}")
     return conn
+async def highlight_position(page, x, y, width=10, height=10):
+    # 插入一个半透明的红色圆形标记
+    await page.evaluate(f'''
+        () => {{
+            const marker = document.createElement('div');
+            marker.style.position = 'absolute';
+            marker.style.left = '{x - width // 2}px';
+            marker.style.top = '{y - height // 2}px';
+            marker.style.width = '{width}px';
+            marker.style.height = '{height}px';
+            marker.style.borderRadius = '50%';
+            marker.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+            marker.style.zIndex = '9999';
+            marker.style.pointerEvents = 'none';  // 确保标记不影响点击
+            document.body.appendChild(marker);
+        }}
+    ''')
 
 
 def create_table(conn):
@@ -78,7 +94,7 @@ def create_table(conn):
         # 插入初始化记录，如果表为空
         cursor.execute("""
                 INSERT IGNORE INTO scroll_state (id, last_scroll_y, scroll_count, click_count)
-                VALUES (1, 6, 0, 0)
+                VALUES (1, 4, 0, 0)
             """)
         conn.commit()
 
@@ -177,6 +193,8 @@ async def handle_login(page):
         print(f"登录弹窗处理错误: {e}")
 
 
+
+
 async def get_gpt_summary_and_title(article_content):
     payload = {
         'model': 'gpt-3.5-turbo',
@@ -234,8 +252,13 @@ async def fetch_data():
 
         start_x = 300
         start_y = 245
-        offset_y = 6
-        max_scrolls = 5  # 最大滑动次数
+        backup_x = 553
+        backup_y = 245
+        temp_x = 1000  # 临时鼠标位置 x
+        temp_y = 245   # 临时鼠标位置 y
+        offset_y = 4
+        max_scrolls = 8  # 最大滑动次数
+        max_clicks_without_data = 8  # 连续点击次数阈值
 
         conn = create_connection()
         if conn is not None:
@@ -243,20 +266,27 @@ async def fetch_data():
 
             # 恢复上次滑动状态
             last_scroll_y, last_scroll_count, click_count = get_last_scroll_state(conn)
-            total_scroll_y = int(last_scroll_count) * offset_y  # 确保 total_scroll_y 是整数
+
+            # 初始化当前坐标为默认坐标
+            current_x, current_y = start_x, start_y
+            click_count_without_data = 0
 
             # 先移动到指定位置
-            await page.mouse.move(start_x, start_y)
+            await page.mouse.move(current_x, current_y)
+            await highlight_position(page, current_x, current_y)  # 添加高亮
             # 然后将页面滚动到上次的位置
-            await page.mouse.wheel(0, total_scroll_y)
-            print(f"恢复到上次位置: 滚动距离 = {total_scroll_y}")
+            # 多次调用滚动
+            for _ in range(last_scroll_count):
+                await page.mouse.wheel(0, last_scroll_y)
+                await asyncio.sleep(0.2)  # 每次滚动后等待片刻
 
             scroll_count = 0
 
             while scroll_count < max_scrolls:
                 # 点击指定位置
-                await page.mouse.move(start_x, start_y)
-                await page.mouse.click(start_x, start_y)
+                await page.mouse.move(current_x, current_y)
+                await highlight_position(page, current_x, current_y)  # 添加高亮
+                await page.mouse.click(current_x, current_y)
 
                 await page.wait_for_timeout(2000)
 
@@ -273,12 +303,25 @@ async def fetch_data():
                     new_url = new_page.url
                     print(f"新页面的URL: {new_url}")
 
+                    # 检查新 URL 是否已经访问过
+                    link_hash = generate_link_hash(new_url)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM articles WHERE link_hash = %s", (link_hash,))
+                    if cursor.fetchone()[0] > 0:
+                        print(f"记录已存在: {new_url}")
+                        await new_page.close()
+                        scroll_count = 0  # 成功获取到数据，重置滑动计数器
+                        click_count_without_data = 0  # 重置连续点击计数器
+                        # 滚动页面
+                        await page.mouse.wheel(0, offset_y)
+                        print(f"滚动位置: (0, {offset_y})")
+                        continue
 
                     await handle_login(new_page)
                     await new_page.wait_for_load_state('networkidle', timeout=120000)
 
                     # 保存当前点击链接状态
-                    update_click_count(conn)  # 异步调用保存点击状态
+                    update_click_count(conn)
 
                     article_content = await extract_article_data(new_page)
 
@@ -296,19 +339,44 @@ async def fetch_data():
 
                     insert_article(conn, article)
 
+                    # 记录所有滑动次数
+                    for _ in range(scroll_count):
+                        save_scroll_state(conn)
+
                     await new_page.close()
                     scroll_count = 0  # 成功获取到数据，重置滑动计数器
+                    click_count_without_data = 0  # 重置连续点击计数器
                 else:
                     # 如果没有找到新页面，增加滑动计数器
-                    scroll_count += 1
-                    print(f"未能找到新页面，滑动计数器增加到 {scroll_count}")
+                    click_count_without_data += 1
+                    print(f"未能找到新页面，连续点击次数增加到 {click_count_without_data}")
 
-                # 滚动页面
-                await page.mouse.wheel(0, offset_y)
+                    # 如果连续点击次数达到阈值，切换坐标
+                    if click_count_without_data >= max_clicks_without_data:
+                        if (current_x, current_y) == (start_x, start_y):
+                            current_x, current_y = backup_x, backup_y
+                            print(f"切换到备用坐标: ({current_x}, {current_y})")
+                            for _ in range(max_scrolls):  #进行回退
+                                await page.mouse.wheel(0, -last_scroll_y)
+                                await asyncio.sleep(0.2)  # 每次滚动后等待片刻
+                            scroll_count = 0  # 成功获取到数据，重置滑动计数器
+                            click_count_without_data = 0  # 重置连续点击计数器
+                        else:
+                            print("备用坐标点击后仍无数据，结束数据抓取")
+                            for _ in range(max_scrolls):  # 进行回退
+                                await page.mouse.wheel(0, -last_scroll_y)
+                                await asyncio.sleep(0.2)  # 每次滚动后等待片刻
+                            break  # 结束数据抓取
+
+                # 处理长文本导致无法滚动的情况
+                await page.mouse.move(temp_x, temp_y)  # 临时位置
+                await page.mouse.wheel(0, offset_y)  # 执行滚动操作
+                await asyncio.sleep(1)  # 等待滚动完成
+                await page.mouse.move(current_x, current_y)  # 切换回原位置
                 print(f"滚动位置: (0, {offset_y})")
 
                 # 保存当前滑动状态
-                save_scroll_state(conn)
+                # save_scroll_state(conn) 像这种空滑动先暂且不算
 
                 await asyncio.sleep(2)
 
@@ -318,12 +386,12 @@ async def fetch_data():
                 conn.close()
 
 
+
 async def main():
     while True:
         await fetch_data()
         print("数据抓取完成，休眠 60 分钟。")
         await asyncio.sleep(3600)  # 每 60 分钟运行一次
-
 
 if __name__ == '__main__':
     asyncio.run(main())
