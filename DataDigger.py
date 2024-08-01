@@ -254,7 +254,7 @@ async def fetch_data():
         start_y = 245
         backup_x = 553
         backup_y = 245
-        temp_x = 1000  # 临时鼠标位置 x
+        temp_x = 1250  # 临时鼠标位置 x
         temp_y = 245   # 临时鼠标位置 y
         offset_y = 4
         max_scrolls = 8  # 最大滑动次数
@@ -314,6 +314,7 @@ async def fetch_data():
                         click_count_without_data = 0  # 重置连续点击计数器
                         # 滚动页面
                         await page.mouse.wheel(0, offset_y)
+                        save_scroll_state(conn)
                         print(f"滚动位置: (0, {offset_y})")
                         continue
 
@@ -340,7 +341,7 @@ async def fetch_data():
                     insert_article(conn, article)
 
                     # 记录所有滑动次数
-                    for _ in range(scroll_count):
+                    for i in range(scroll_count):
                         save_scroll_state(conn)
 
                     await new_page.close()
@@ -356,14 +357,14 @@ async def fetch_data():
                         if (current_x, current_y) == (start_x, start_y):
                             current_x, current_y = backup_x, backup_y
                             print(f"切换到备用坐标: ({current_x}, {current_y})")
-                            for _ in range(max_scrolls):  #进行回退
+                            for i in range(max_scrolls):  #进行回退
                                 await page.mouse.wheel(0, -last_scroll_y)
                                 await asyncio.sleep(0.2)  # 每次滚动后等待片刻
                             scroll_count = 0  # 成功获取到数据，重置滑动计数器
                             click_count_without_data = 0  # 重置连续点击计数器
                         else:
                             print("备用坐标点击后仍无数据，结束数据抓取")
-                            for _ in range(max_scrolls):  # 进行回退
+                            for i in range(max_scrolls):  # 进行回退
                                 await page.mouse.wheel(0, -last_scroll_y)
                                 await asyncio.sleep(0.2)  # 每次滚动后等待片刻
                             break  # 结束数据抓取
