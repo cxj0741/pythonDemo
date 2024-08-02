@@ -1,7 +1,25 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+from typing import List
 import mysql.connector
 from mysql.connector import Error
+from starlette.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# 允许跨域请求的来源
+origins = [
+    "http://localhost:3000",  # React开发服务器的URL
+]
+
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 数据库配置
 DB_CONFIG = {
@@ -25,19 +43,18 @@ def create_connection():
         print(f"连接 MySQL 数据库时发生错误: {e}")
     return conn
 
-app = Flask(__name__)
+class Article(BaseModel):
+    number: int
+    update_log: str
+    summary: str
+    link: str
+    keywords: List[str]
 
-# 配置 CORS
-CORS(app)
-
-@app.route('/api/data', methods=['GET'])
-def get_data():
-    page = request.args.get('page', default=1, type=int)
-    limit = request.args.get('limit', default=10, type=int)
-
+@app.get("/api/data", response_model=List[Article])
+async def get_data(page: int = Query(1, le=100), limit: int = Query(10, le=100)):
     conn = create_connection()
     if conn is None:
-        return jsonify({"error": "无法连接到数据库"}), 500
+        raise HTTPException(status_code=500, detail="无法连接到数据库")
 
     cursor = conn.cursor(dictionary=True)
     offset = (page - 1) * limit
@@ -47,13 +64,15 @@ def get_data():
     cursor.close()
     conn.close()
 
+    # 处理 keywords 列
     for row in rows:
         if isinstance(row['keywords'], str):
             row['keywords'] = row['keywords'].split(',')  # 将关键词从字符串转换为列表
         else:
             row['keywords'] = []  # 如果不是字符串，则设置为一个空列表
 
-    return jsonify(rows)
+    return rows
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
