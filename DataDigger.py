@@ -1,5 +1,8 @@
 # data_fetcher.py
 import asyncio
+import logging
+from venv import logger
+
 from playwright.async_api import async_playwright
 import requests
 import mysql.connector
@@ -12,6 +15,29 @@ from datetime import datetime
 #4：点击链接以后，没有进行插入数据，number已经+1，后端服务崩溃，number不连续的问题
 #5：有时候在一个单元格内不去滑动，不知道什么原因，文本内容太长，超出单元格范围，无法滚动
 
+#飞书表格65行无权访问
+# 350行数据跳过
+
+# 配置日志记录
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# 创建控制台处理器
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# 创建文件处理器
+file_handler = logging.FileHandler('app.log')
+file_handler.setLevel(logging.INFO)
+
+# 创建格式器
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
+
+# 将处理器添加到记录器
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
 
 # 替换为你的 OneAI API 密钥
 api_key = 'sk-ozYXQPQjeu0xCHFg0a1f329dA2194689931b8a6a6809558c'
@@ -44,8 +70,8 @@ def create_connection():
     except Error as e:
         print(f"连接 MySQL 数据库时发生错误: {e}")
     return conn
+# 插入一个半透明的红色圆形标记
 async def highlight_position(page, x, y, width=10, height=10):
-    # 插入一个半透明的红色圆形标记
     await page.evaluate(f'''
         () => {{
             const marker = document.createElement('div');
@@ -62,7 +88,7 @@ async def highlight_position(page, x, y, width=10, height=10):
         }}
     ''')
 
-
+# 创建表格
 def create_table(conn):
     try:
         cursor = conn.cursor()
@@ -102,12 +128,12 @@ def create_table(conn):
         print(f"创建表格时发生错误: {e}")
 
 
-
+# 生成linkhash
 def generate_link_hash(url):
     """生成链接的唯一哈希值"""
     return hashlib.sha256(url.encode('utf-8')).hexdigest()
 
-
+# 插入文章信息
 def insert_article(conn, article):
     link_hash = generate_link_hash(article['link'])
     cursor = conn.cursor()
@@ -128,7 +154,7 @@ def insert_article(conn, article):
     conn.commit()
     print("记录插入成功。")
 
-
+#更新滑动次数
 def save_scroll_state(conn):
     try:
         cursor = conn.cursor()
@@ -142,6 +168,7 @@ def save_scroll_state(conn):
     except Error as e:
         print(f"保存滑动状态时发生错误: {e}")
 
+# 更新点击次数
 def update_click_count(conn):
     try:
         cursor = conn.cursor()
@@ -155,6 +182,7 @@ def update_click_count(conn):
     except Error as e:
         print(f"更新点击次数时发生错误: {e}")
 
+# 获取点击和滑动次数
 def get_last_scroll_state(conn):
     try:
         cursor = conn.cursor(dictionary=True)
@@ -171,7 +199,7 @@ def get_last_scroll_state(conn):
         print(f"获取滑动状态时发生错误: {e}")
         return 6, 0, 0  # 默认值
 
-
+# 获取文章内容
 async def extract_article_data(page):
     await page.wait_for_load_state('networkidle', timeout=120000)
     content = await page.evaluate('''
@@ -181,7 +209,7 @@ async def extract_article_data(page):
         ''')
     return content
 
-
+# 处理登录弹窗
 async def handle_login(page):
     try:
         await page.wait_for_selector(".lite-login-dialog__inner", timeout=30000)
@@ -194,7 +222,7 @@ async def handle_login(page):
 
 
 
-
+# 获取文章标题和摘要
 async def get_gpt_summary_and_title(article_content):
     payload = {
         'model': 'gpt-3.5-turbo',
@@ -231,7 +259,7 @@ async def get_gpt_summary_and_title(article_content):
         print(f"获取 GPT 响应时发生错误: {e}")
         return None, None
 
-
+# 最重要的处理数据流程
 async def fetch_data():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
@@ -248,13 +276,14 @@ async def fetch_data():
             return
 
         await handle_login(page)
+        logger.info("将文章列表的登录弹窗关闭")
         await page.wait_for_selector('[data-sheet-element="sheetHost"]')
 
         start_x = 300
         start_y = 245
         backup_x = 553
         backup_y = 245
-        temp_x = 1250  # 临时鼠标位置 x
+        temp_x = 45  # 临时鼠标位置 x
         temp_y = 245   # 临时鼠标位置 y
         offset_y = 4
         max_scrolls = 8  # 最大滑动次数
@@ -267,9 +296,11 @@ async def fetch_data():
             # 恢复上次滑动状态
             last_scroll_y, last_scroll_count, click_count = get_last_scroll_state(conn)
 
+
             # 初始化当前坐标为默认坐标
             current_x, current_y = start_x, start_y
             click_count_without_data = 0
+            scroll_count = 0
 
             # 先移动到指定位置
             await page.mouse.move(current_x, current_y)
@@ -278,9 +309,9 @@ async def fetch_data():
             # 多次调用滚动
             for _ in range(last_scroll_count):
                 await page.mouse.wheel(0, last_scroll_y)
-                await asyncio.sleep(0.2)  # 每次滚动后等待片刻
+                # await asyncio.sleep(0.2)  # 每次滚动后等待片刻
+            logger.info(f"恢复上次滑动状态,滑动次数:{last_scroll_count},每次滑动距离:{last_scroll_y}")
 
-            scroll_count = 0
 
             while scroll_count < max_scrolls:
                 # 点击指定位置
@@ -313,7 +344,10 @@ async def fetch_data():
                         scroll_count = 0  # 成功获取到数据，重置滑动计数器
                         click_count_without_data = 0  # 重置连续点击计数器
                         # 滚动页面
-                        await page.mouse.wheel(0, offset_y)
+                        await page.mouse.move(temp_x, temp_y)  # 临时位置
+                        await page.mouse.wheel(0, offset_y)  # 执行滚动操作
+                        await asyncio.sleep(1)  # 等待滚动完成
+                        await page.mouse.move(current_x, current_y)  # 切换回原位置
                         save_scroll_state(conn)
                         print(f"滚动位置: (0, {offset_y})")
                         continue
@@ -341,7 +375,7 @@ async def fetch_data():
                     insert_article(conn, article)
 
                     # 记录所有滑动次数
-                    for i in range(scroll_count):
+                    for i in range(scroll_count+1):
                         save_scroll_state(conn)
 
                     await new_page.close()
@@ -350,6 +384,7 @@ async def fetch_data():
                 else:
                     # 如果没有找到新页面，增加滑动计数器
                     click_count_without_data += 1
+                    scroll_count+=1
                     print(f"未能找到新页面，连续点击次数增加到 {click_count_without_data}")
 
                     # 如果连续点击次数达到阈值，切换坐标
@@ -358,14 +393,14 @@ async def fetch_data():
                             current_x, current_y = backup_x, backup_y
                             print(f"切换到备用坐标: ({current_x}, {current_y})")
                             for i in range(max_scrolls):  #进行回退
-                                await page.mouse.wheel(0, -last_scroll_y)
+                                await page.mouse.wheel(0, -last_scroll_y+1)
                                 await asyncio.sleep(0.2)  # 每次滚动后等待片刻
                             scroll_count = 0  # 成功获取到数据，重置滑动计数器
                             click_count_without_data = 0  # 重置连续点击计数器
                         else:
                             print("备用坐标点击后仍无数据，结束数据抓取")
                             for i in range(max_scrolls):  # 进行回退
-                                await page.mouse.wheel(0, -last_scroll_y)
+                                await page.mouse.wheel(0, -last_scroll_y+1)
                                 await asyncio.sleep(0.2)  # 每次滚动后等待片刻
                             break  # 结束数据抓取
 
@@ -380,6 +415,7 @@ async def fetch_data():
                 # save_scroll_state(conn) 像这种空滑动先暂且不算
 
                 await asyncio.sleep(2)
+                print("-------------------------------------------------------------------------------")
 
             print("表格数据抓取完成或达到滑动次数限制")
             await browser.close()
@@ -390,9 +426,12 @@ async def fetch_data():
 
 async def main():
     while True:
-        await fetch_data()
-        print("数据抓取完成，休眠 60 分钟。")
-        await asyncio.sleep(3600)  # 每 60 分钟运行一次
+        try:
+            await fetch_data()
+            logger.info("数据抓取完成，休眠 60 分钟。")
+        except Exception as e:
+            logger.error(f"数据抓取过程中发生错误: {e}")
+        await asyncio.sleep(300)  # 每 5 分钟运行一次
 
 if __name__ == '__main__':
     asyncio.run(main())
