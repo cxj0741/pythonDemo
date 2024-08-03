@@ -68,3 +68,54 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+=======
+# 生财文章列表展示项目
+
+## 项目目的
+
+这个项目的目标是从飞书表格中采集文章列表，并将这些文章信息展示在一个新的网页上。网页会包含文章的编号、更新日志、摘要、链接以及关键字（标签）。项目包括两个阶段：
+
+1. **阶段一**：从飞书表格采集文章信息，并在网页上展示这些信息，支持自动更新。
+2. **阶段二**：当飞书表格受到加密保护时，实现相应的功能。
+
+## 技术栈
+
+- **前端**：React
+- **后端**：python（用于抓取数据）
+- **API**：OpenAI API（用于获取文章摘要和标签）
+- **工具**：GitHub（版本控制和代码托管）
+
+## 阶段一：项目实现
+
+### 1. 技术采集飞书表格
+
+- 使用飞书 API 采集表格中的文章信息。
+- 确保采集的数据包括：编号、更新日志、文章摘要、文章链接和文章关键字（标签）。
+
+### 2. 展示网页的设计和实现
+
+#### A. 网页信息
+
+- **编号**：从飞书表格中采集的文章编号。
+- **更新日志**：记录文章的更新历史。
+- **文章摘要**：使用 OpenAI API 获取文章的摘要。
+- **文章链接**：文章的原始链接。
+- **文章关键字**：使用 OpenAI API 提取文章的关键字（标签）。
+
+#### B. 自动更新
+
+- 实现功能，使得当飞书表格中的信息更新时，网页内容能够自动更新。
+
+#### C. 前端实现
+
+- 使用 React 框架来实现前端网页。
+- 设计网页以展示上述信息，并确保用户界面友好。
+
+
+## 阶段二：处理加密保护的飞书表格
+
+- 处理飞书表格加密保护的情况（密码：6#6283B3）。
+- 实现相应的功能，以确保在加密情况下也能采集和展示文章信息。
+
+## 项目结构
+
