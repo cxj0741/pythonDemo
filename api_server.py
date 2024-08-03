@@ -10,6 +10,7 @@ app = FastAPI()
 # 允许跨域请求的来源
 origins = [
     "http://localhost:3000",  # React开发服务器的URL
+"http://localhost:3001",  # React开发服务器的URL
 ]
 
 # 添加CORS中间件
