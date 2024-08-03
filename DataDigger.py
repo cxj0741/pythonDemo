@@ -10,11 +10,6 @@ from mysql.connector import Error
 import hashlib
 from datetime import datetime
 
-# 2:坐标左对齐，居中的问题
-#3：坐标回退判断
-#4：点击链接以后，没有进行插入数据，number已经+1，后端服务崩溃，number不连续的问题
-#5：有时候在一个单元格内不去滑动，不知道什么原因，文本内容太长，超出单元格范围，无法滚动
-
 #飞书表格65行无权访问
 # 350行数据跳过
 
@@ -259,6 +254,8 @@ async def get_gpt_summary_and_title(article_content):
         print(f"获取 GPT 响应时发生错误: {e}")
         return None, None
 
+
+
 # 最重要的处理数据流程
 async def fetch_data():
     async with async_playwright() as p:
@@ -266,7 +263,8 @@ async def fetch_data():
         context = await browser.new_context()
         page = await context.new_page()
 
-        url = 'https://iqzeljuzeco.feishu.cn/sheets/N5Wts8V9Wh3gXJtyxPvcDbMZnJc'
+        # url = 'https://iqzeljuzeco.feishu.cn/sheets/N5Wts8V9Wh3gXJtyxPvcDbMZnJc'
+        url = 'https://iqzeljuzeco.feishu.cn/wiki/W25vw2dnaii2DWkZSGtc2ljFnrh'
 
         # 尝试增加超时时间
         try:
@@ -274,6 +272,17 @@ async def fetch_data():
         except TimeoutError as e:
             print(f"页面加载超时: {e}")
             return
+
+        # 处理登录弹窗
+        await handle_login(page)
+        # 输入密码（确保选择器正确，可能需要根据实际页面调整）
+        await page.fill('input.password-input', '6#6283B3')
+         # 等待按钮启用
+        await page.wait_for_selector('button.password-required-button:not([disabled])', timeout=30000)
+        # 提交表单
+        await page.click('button.password-required-button')
+        # 等待登录完成（根据需要修改等待条件）
+        await page.wait_for_load_state('networkidle')
 
         await handle_login(page)
         logger.info("将文章列表的登录弹窗关闭")
