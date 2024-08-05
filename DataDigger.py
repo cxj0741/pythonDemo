@@ -22,7 +22,7 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
 # 创建文件处理器
-file_handler = logging.FileHandler('app.log')
+file_handler = logging.FileHandler('test/app.log')
 file_handler.setLevel(logging.INFO)
 
 # 创建格式器
@@ -260,33 +260,76 @@ async def get_gpt_summary_and_title(article_content):
 async def fetch_data():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context()
+        # context = await browser.new_context()
+        # browser =  playwright.chromium.launch_persistent_context(
+        #     user_data_dir=r'C:\Users\86157\AppData\Local\Google\Chrome\User Data',
+        #     headless=False  # 设置为 False 以打开浏览器窗口
+        # )
+        # 启动 Playwright 和持久化上下文
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=r'C:\Users\86157\AppData\Local\Google\Chrome\User Data',
+            headless=False  # 设置为 False 以打开浏览器窗口
+        )
+
+        # 创建新页面
         page = await context.new_page()
 
+        original_url = 'https://iqzeljuzeco.feishu.cn/wiki/W25vw2dnaii2DWkZSGtc2ljFnrh'
+        target_url = 'https://iqzeljuzeco.feishu.cn/wiki/HgrMwMLbZivmZekJHB3cn4CBnN4'
+
+        # 前往原始网页
+        await page.goto(original_url)
+
+        # 点击选择器来选中全表
+        await page.locator("#miniapp-faster canvas").click(position={"x": 35, "y": 13})
+
+        # 按下快捷键复制特定文本
+        str = await page.locator("#zh-CN").press("ControlOrMeta+c")
+
+        # 等待复制操作完成
+        await page.wait_for_timeout(2000)  # 等待2秒，可以根据实际情况调整
+
+        # 前往目标网页，设置较长的超时时间和等待选项
+        # await page.goto(target_url, timeout=180000, wait_until='networkidle')
+        await page.goto(target_url)
+
+        # 点击选择器来选中全表
+        await page.locator("#miniapp-faster canvas").click(position={"x": 35, "y": 13})
+
+        # 粘贴操作
+        await page.locator("#zh-CN").press("ControlOrMeta+v")
+
+        # 等待粘贴操作完成
+        await page.wait_for_timeout(2000)  # 等待2秒，可以根据实际情况调整
+
         # url = 'https://iqzeljuzeco.feishu.cn/sheets/N5Wts8V9Wh3gXJtyxPvcDbMZnJc'
-        url = 'https://iqzeljuzeco.feishu.cn/wiki/W25vw2dnaii2DWkZSGtc2ljFnrh'
+        # url = 'https://iqzeljuzeco.feishu.cn/wiki/W25vw2dnaii2DWkZSGtc2ljFnrh'
 
         # 尝试增加超时时间
-        try:
-            await page.goto(url, timeout=180000, wait_until='networkidle')
-        except TimeoutError as e:
-            print(f"页面加载超时: {e}")
-            return
+        # try:
+        #     await page.goto(url, timeout=180000, wait_until='networkidle')
+        # except TimeoutError as e:
+        #     print(f"页面加载超时: {e}")
+        #     return
 
         # 处理登录弹窗
-        await handle_login(page)
+        # await handle_login(page)
         # 输入密码（确保选择器正确，可能需要根据实际页面调整）
-        await page.fill('input.password-input', '6#6283B3')
+        # await page.fill('input.password-input', '6#6283B3')
          # 等待按钮启用
-        await page.wait_for_selector('button.password-required-button:not([disabled])', timeout=30000)
+        # await page.wait_for_selector('button.password-required-button:not([disabled])', timeout=30000)
         # 提交表单
-        await page.click('button.password-required-button')
+        # await page.click('button.password-required-button')
         # 等待登录完成（根据需要修改等待条件）
-        await page.wait_for_load_state('networkidle')
+        # await page.wait_for_load_state('networkidle')
 
-        await handle_login(page)
-        logger.info("将文章列表的登录弹窗关闭")
+        # await handle_login(page)
+        # logger.info("将文章列表的登录弹窗关闭")
+
         await page.wait_for_selector('[data-sheet-element="sheetHost"]')
+
+        # 进行数据备份到自己的飞书表格 createBackup()
+
 
         start_x = 300
         start_y = 245
@@ -361,7 +404,7 @@ async def fetch_data():
                         print(f"滚动位置: (0, {offset_y})")
                         continue
 
-                    await handle_login(new_page)
+                    # await handle_login(new_page) #注释调弹窗处理
                     await new_page.wait_for_load_state('networkidle', timeout=120000)
 
                     # 保存当前点击链接状态
